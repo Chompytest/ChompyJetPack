@@ -946,28 +946,56 @@ const particles = [];   // { x, y, vx, vy, life, max, size, color, type, grav, l
    INPUT  (desktop: Space / ↑ / W / mouse — mobile: hold the screen)
    ===================================================================== */
 const input = { thrust: false, pressed: false, pointers: new Set() };
-let keyThrust = false;
+const heldKeys = new Set();
 
 function isTyping() { const el = document.activeElement; return el && el.tagName === 'INPUT'; }
+
+/* Elements that handle their own taps. A tap here must NOT also fly Chompy — and just
+   as importantly, everything NOT matching this SHOULD fly, including the HUD strip
+   around the pause/mute buttons. */
+function isUiTarget(el) {
+  return !!(el && el.closest && el.closest('button, input, select, textarea, a, .panel'));
+}
+
 /* Tap-based vehicles (flap / ground / gravity / surface / blink) act on the PRESS edge,
    not on the held state. `pressed` is a one-shot flag the physics step consumes, so a
    press is never missed even if it lands between frames, and never double-counted. */
 function updateThrust() {
   const before = input.thrust;
-  input.thrust = keyThrust || input.pointers.size > 0;
+  input.thrust = heldKeys.size > 0 || input.pointers.size > 0;
   if (input.thrust && !before) input.pressed = true;
 }
 function takePress() { const p = input.pressed; input.pressed = false; return p; }
 
-canvas.addEventListener('pointerdown', (e) => {
+/* Held input is tracked GLOBALLY, independently of game state. Three separate bugs came
+   from not doing that, and every one of them read as "I tapped and nothing happened":
+     1. The listener was on the canvas, but `.hud-btns` is a pointer-events:auto strip in
+        the top-right corner. Taps landing there hit the UI layer and did nothing — a
+        real dead zone, right where a thumb rests on a phone.
+     2. pointerdown only registered while state was already PLAYING, so a finger already
+        touching the screen when a run began was never counted: pointerdown had fired
+        while the state was still DEAD or MENU. You had to lift and tap again.
+     3. startRun() and die() then cleared the pointer set outright, discarding a finger
+        that genuinely was still down.
+   The same three applied to holding Space through a restart on desktop. */
+window.addEventListener('pointerdown', (e) => {
   audio.unlock();
-  if (state === ST.PLAYING) { input.pointers.add(e.pointerId); updateThrust(); }
+  if (isUiTarget(e.target)) return;              // let the UI have its own taps
   if (isTyping()) document.activeElement.blur();
-  e.preventDefault();
-});
+  input.pointers.add(e.pointerId);
+  updateThrust();
+  // A phone has no keyboard, so a tap off the panel has to do what Space does.
+  if (state === ST.PAUSED) resumeGame();
+  else if (state === ST.DEAD && !ui.lbOpen && ui.current === 'screenOver') startRun();
+  if (e.cancelable) e.preventDefault();
+}, { passive: false });
+
 const releasePointer = (e) => { if (input.pointers.delete(e.pointerId)) updateThrust(); };
 window.addEventListener('pointerup', releasePointer);
 window.addEventListener('pointercancel', releasePointer);
+// Fires when the browser silently steals the pointer (system gesture, notification).
+// Without it the id would sit in the set forever and thrust would stick ON.
+window.addEventListener('lostpointercapture', releasePointer);
 window.addEventListener('contextmenu', (e) => { if (e.target === canvas) e.preventDefault(); });
 
 const THRUST_KEYS = new Set(['Space', 'ArrowUp', 'KeyW', 'KeyX']);
@@ -977,10 +1005,11 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (e.repeat) return;
     audio.unlock();
-    if (state === ST.PLAYING) { keyThrust = true; updateThrust(); }
-    else if (state === ST.MENU && !ui.lbOpen) startRun();
+    heldKeys.add(e.code);                        // held regardless of state (see above)
+    updateThrust();
+    if (state === ST.MENU && !ui.lbOpen) startRun();
     else if (state === ST.DEAD && !ui.lbOpen) startRun();
-    else if (state === ST.PAUSED && e.code === 'Enter') resumeGame();
+    else if (state === ST.PAUSED) resumeGame();
     return;
   }
   if (e.code === 'KeyP' || e.code === 'Escape') {
@@ -990,9 +1019,15 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') toggleMute();
   if (e.code === 'KeyL' && (state === ST.MENU || state === ST.DEAD) && !ui.lbOpen) openLeaderboard();
 });
-window.addEventListener('keyup', (e) => { if (THRUST_KEYS.has(e.code) || e.code === 'Enter') { keyThrust = false; updateThrust(); } });
-window.addEventListener('blur', () => { keyThrust = false; input.pointers.clear(); updateThrust(); if (state === ST.PLAYING) pauseGame(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && state === ST.PLAYING) pauseGame(); });
+window.addEventListener('keyup', (e) => { if (heldKeys.delete(e.code)) updateThrust(); });
+
+/* Only drop held input when we genuinely cannot trust it any more — the window lost
+   focus or the tab went away, so the matching release event will never arrive. */
+function dropAllInput() { heldKeys.clear(); input.pointers.clear(); updateThrust(); }
+window.addEventListener('blur', () => { dropAllInput(); if (state === ST.PLAYING) pauseGame(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { dropAllInput(); if (state === ST.PLAYING) pauseGame(); }
+});
 
 /* =====================================================================
    WORLD: speed, difficulty, day/night sky, parallax scenery
@@ -2055,7 +2090,7 @@ function startRun() {
   audio.unlock();
   resetWorld();
   state = ST.PLAYING;
-  keyThrust = false; input.pointers.clear(); updateThrust();
+  updateThrust();          // carry a finger/key still genuinely down into the new run
   ui.show(null);
   $('hud').classList.add('on');
   audio.play('start'); audio.duckMusic(0.32);
@@ -2073,7 +2108,7 @@ function die() {
   burst(px, py, { type: 'smoke', n: 10, size: 10, life: 1.0, maxSpeed: 120 });
   addP({ type: 'ring', x: px, y: py, vx: 0, vy: 0, life: 0.45, size: 50, color: '#fff', layer: 1 });
   shake(0.5, 12); timeScale = 0.25; flashT = 0.25; deathT = 0;
-  keyThrust = false; input.pointers.clear(); updateThrust();
+  updateThrust();
 
   // Run stats are final now; the local best is saved immediately (no waiting on the network).
   const distance = Math.floor(distanceM);
@@ -2087,7 +2122,7 @@ function die() {
 function pauseGame() {
   if (state !== ST.PLAYING) return;
   state = ST.PAUSED; audio.thrust(false, 0);
-  keyThrust = false; input.pointers.clear(); updateThrust();
+  updateThrust();
   ui.show('screenPause');
 }
 function resumeGame() {
@@ -3159,7 +3194,8 @@ if (DEBUG) {
     player, view, counts: () => ({ zappers: zappers.length, mines: mines.length, lasers: lasers.length, missiles: missiles.length, coins: coinsList.length, powerups: powerups.length, particles: particles.length }),
     warp(m) { if (state !== ST.PLAYING) return; const dx = m * PX_PER_M - scrollX; scrollX += dx; runTime += dx / PX_PER_M / 30; gen.nextX += dx; gen.nextSignM = Math.floor(m / 500) * 500 + 500; for (const s of signs) s.x += dx; for (const l of [zappers, mines, coinsList, powerups]) for (const e of l) { e.x += dx; if (e.x1 !== undefined) { e.x1 += dx; e.x2 += dx; } if (e.rot) e.rot.cx += dx; } for (const l of lasers) l.x += dx; for (const mi of missiles) mi.x += dx; nextMilestone = Math.floor(m / 1000) * 1000 + 1000; },
     give(kind) { collectPowerup({ x: scrollX + view.playerX, y: player.y, kind, taken: false, t: 0 }); },
-    setThrust(on) { keyThrust = !!on; updateThrust(); },
+    setThrust(on) { if (on) heldKeys.add('Space'); else heldKeys.delete('Space'); updateThrust(); },
+    get input() { return { thrust: input.thrust, pointers: input.pointers.size, keys: heldKeys.size }; },
     obstacles() {
       const sx = scrollX;
       return {
@@ -3206,6 +3242,7 @@ if (DEBUG) {
     vehicles: VEH_KEYS,
     ride(key) { startVehicle(key); },
     tap() { input.pressed = true; },
+    kill() { player.invulnT = 0; player.veh = null; player.shield = false; die(); },
   };
 }
 

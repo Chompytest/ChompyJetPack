@@ -948,6 +948,7 @@ const particles = [];   // { x, y, vx, vy, life, max, size, color, type, grav, l
 const input = { thrust: false, pressed: false, pointers: new Set() };
 const heldKeys = new Set();
 
+
 function isTyping() { const el = document.activeElement; return el && el.tagName === 'INPUT'; }
 
 /* Elements that handle their own taps. A tap here must NOT also fly Chompy — and just
@@ -962,7 +963,7 @@ function isUiTarget(el) {
    press is never missed even if it lands between frames, and never double-counted. */
 function updateThrust() {
   const before = input.thrust;
-  input.thrust = heldKeys.size > 0 || input.pointers.size > 0;
+  input.thrust = heldKeys.size > 0 || input.pointers.size > 0 || touchThrust > 0;
   if (input.thrust && !before) input.pressed = true;
 }
 function takePress() { const p = input.pressed; input.pressed = false; return p; }
@@ -978,13 +979,64 @@ function takePress() { const p = input.pressed; input.pressed = false; return p;
      3. startRun() and die() then cleared the pointer set outright, discarding a finger
         that genuinely was still down.
    The same three applied to holding Space through a restart on desktop. */
-window.addEventListener('pointerdown', (e) => {
+/* ---------------------------------------------------------------------
+   TOUCH is handled by the touch events, not the pointer events, and the number of
+   active fingers is read from `e.touches` — the browser's own live list — rather than
+   from a Set we maintain ourselves.
+
+   This matters because a hand-maintained set can silently desync from reality and then
+   stay wrong: the browser fires `pointercancel` mid-gesture while the finger is still
+   down, touch ids get reused between taps, and an occasional up/cancel simply never
+   arrives. Any one of those leaves a phantom entry (thrust sticks ON) or drops a real
+   one (the next press does nothing and Chompy just falls) until the game is reloaded.
+
+   `e.touches` is authoritative and present on EVERY touch event, so re-reading it each
+   time is self-healing: even if one event is missed entirely, the next one restores the
+   truth. `Touch.target` is where that finger first landed, which is what decides whether
+   it belongs to the UI or to flying.
+   --------------------------------------------------------------------- */
+let touchThrust = 0;
+
+function countFlyingTouches(e) {
+  let n = 0;
+  const list = e.touches || [];
+  for (let i = 0; i < list.length; i++) if (!isUiTarget(list[i].target)) n++;
+  return n;
+}
+function syncTouches(e) {
+  touchThrust = countFlyingTouches(e);
+  updateThrust();
+}
+
+window.addEventListener('touchstart', (e) => {
   audio.unlock();
-  if (isUiTarget(e.target)) return;              // let the UI have its own taps
+  const flying = countFlyingTouches(e);
+  const wasNone = touchThrust === 0;
+  syncTouches(e);
+  if (flying > 0) {
+    if (isTyping()) document.activeElement.blur();
+    if (wasNone) {
+      // A phone has no keyboard, so a touch off the panel does what Space does.
+      if (state === ST.PAUSED) resumeGame();
+      else if (state === ST.DEAD && !ui.lbOpen && ui.current === 'screenOver') startRun();
+    }
+    if (e.cancelable) e.preventDefault();   // no scroll, zoom or double-tap gestures
+  }
+}, { passive: false });
+window.addEventListener('touchend', syncTouches, { passive: true });
+window.addEventListener('touchcancel', syncTouches, { passive: true });
+// touchmove carries the full list too, so it quietly repairs any earlier drift.
+window.addEventListener('touchmove', syncTouches, { passive: true });
+
+/* Mouse and pen only — touch is handled above. Counting both would double-count on
+   phones, where a touch also synthesises a pointer event. */
+window.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') return;
+  audio.unlock();
+  if (isUiTarget(e.target)) return;
   if (isTyping()) document.activeElement.blur();
   input.pointers.add(e.pointerId);
   updateThrust();
-  // A phone has no keyboard, so a tap off the panel has to do what Space does.
   if (state === ST.PAUSED) resumeGame();
   else if (state === ST.DEAD && !ui.lbOpen && ui.current === 'screenOver') startRun();
   if (e.cancelable) e.preventDefault();
@@ -993,8 +1045,6 @@ window.addEventListener('pointerdown', (e) => {
 const releasePointer = (e) => { if (input.pointers.delete(e.pointerId)) updateThrust(); };
 window.addEventListener('pointerup', releasePointer);
 window.addEventListener('pointercancel', releasePointer);
-// Fires when the browser silently steals the pointer (system gesture, notification).
-// Without it the id would sit in the set forever and thrust would stick ON.
 window.addEventListener('lostpointercapture', releasePointer);
 window.addEventListener('contextmenu', (e) => { if (e.target === canvas) e.preventDefault(); });
 
@@ -1023,7 +1073,7 @@ window.addEventListener('keyup', (e) => { if (heldKeys.delete(e.code)) updateThr
 
 /* Only drop held input when we genuinely cannot trust it any more — the window lost
    focus or the tab went away, so the matching release event will never arrive. */
-function dropAllInput() { heldKeys.clear(); input.pointers.clear(); updateThrust(); }
+function dropAllInput() { heldKeys.clear(); input.pointers.clear(); touchThrust = 0; updateThrust(); }
 window.addEventListener('blur', () => { dropAllInput(); if (state === ST.PLAYING) pauseGame(); });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { dropAllInput(); if (state === ST.PLAYING) pauseGame(); }
@@ -3195,7 +3245,7 @@ if (DEBUG) {
     warp(m) { if (state !== ST.PLAYING) return; const dx = m * PX_PER_M - scrollX; scrollX += dx; runTime += dx / PX_PER_M / 30; gen.nextX += dx; gen.nextSignM = Math.floor(m / 500) * 500 + 500; for (const s of signs) s.x += dx; for (const l of [zappers, mines, coinsList, powerups]) for (const e of l) { e.x += dx; if (e.x1 !== undefined) { e.x1 += dx; e.x2 += dx; } if (e.rot) e.rot.cx += dx; } for (const l of lasers) l.x += dx; for (const mi of missiles) mi.x += dx; nextMilestone = Math.floor(m / 1000) * 1000 + 1000; },
     give(kind) { collectPowerup({ x: scrollX + view.playerX, y: player.y, kind, taken: false, t: 0 }); },
     setThrust(on) { if (on) heldKeys.add('Space'); else heldKeys.delete('Space'); updateThrust(); },
-    get input() { return { thrust: input.thrust, pointers: input.pointers.size, keys: heldKeys.size }; },
+    get input() { return { thrust: input.thrust, pointers: input.pointers.size, keys: heldKeys.size, touches: touchThrust }; },
     obstacles() {
       const sx = scrollX;
       return {

@@ -243,6 +243,17 @@
     .menu-panel .mini-lb .mh { padding-bottom: 2px; font-size: 8.5px; }
   }
 
+  /* ---------- Rotate-to-landscape hint ---------- */
+  .rotate-hint { display: flex; align-items: center; gap: 9px; text-align: left;
+    margin: 0 0 10px; padding: 8px 11px; border-radius: 12px;
+    background: linear-gradient(180deg, rgba(85,201,255,.22), rgba(85,201,255,.08));
+    border: 1px solid rgba(85,201,255,.5); }
+  .rotate-hint .ricon { font-size: 22px; line-height: 1; animation: rockPhone 1.8s ease-in-out infinite; }
+  .rotate-hint .rtext { font-size: 11px; font-weight: 700; line-height: 1.35; color: rgba(255,255,255,.8); }
+  .rotate-hint .rtext b { color: var(--blue); font-size: 12.5px; letter-spacing: .5px; }
+  @keyframes rockPhone { 0%,60%,100% { transform: rotate(0deg); } 75% { transform: rotate(-88deg); } 90% { transform: rotate(-88deg); } }
+  @media (prefers-reduced-motion: reduce) { .rotate-hint .ricon { animation: none; } }
+
   /* ---------- Prize banner + countdown ---------- */
   .prize { margin: 8px 0 10px; padding: 9px 10px 8px; border-radius: 13px; text-align: center;
     background: linear-gradient(180deg, rgba(255,210,63,.20), rgba(255,138,61,.10));
@@ -323,6 +334,11 @@
   <div class="screen" id="screenMenu">
     <div class="panel menu-panel">
       <div class="mcol">
+        <!-- Only rendered in portrait on a phone; see updateRotateHint(). -->
+        <div class="rotate-hint hidden" id="rotateHint">
+          <span class="ricon">📱</span>
+          <span class="rtext"><b>TURN YOUR PHONE SIDEWAYS</b><br>you see almost 3x further ahead</span>
+        </div>
         <div class="title">CHOMPY<br>JET PACK<small>HOLD TO FLY · CHOMP COINS</small></div>
         <div class="menu-best" id="menuBest">LOCAL BEST <b>0m</b></div>
         <div class="prize" id="prizeMenu">
@@ -430,7 +446,7 @@ const RESPONSE = { on: 60, off: 34 };
    `ceiling` MUST stay under api/leaderboard.js's PLAUSIBILITY.maxMetersPerSecond once
    TURBO_MULT is applied, or genuine long runs get rejected as implausible:
    1180 * 1.8 / 16 = 132.75 m/s, so the server ceiling is raised to 140. */
-const SPEED = { start: 300, max: 800, ramp: 6000, maxAt: 11000, ceiling: 1180 };
+const SPEED = { start: 320, max: 830, ramp: 4800, maxAt: 9000, ceiling: 1220 };
 const COIN_VALUE = 5;                                      // score = distance + coins * COIN_VALUE (server checks this)
 const POWERUP = { shield: 0, magnet: 8, turbo: 3.2 };      // durations (s); shield lasts until hit
 const TURBO_MULT = 1.8;
@@ -869,8 +885,8 @@ function resize() {
   canvas.width = Math.round(iw * view.dpr); canvas.height = Math.round(ih * view.dpr);
   canvas.style.width = iw + 'px'; canvas.style.height = ih + 'px';
 }
-window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 50));
+window.addEventListener('resize', () => { resize(); updateRotateHint(); });
+window.addEventListener('orientationchange', () => setTimeout(() => { resize(); updateRotateHint(); }, 50));
 resize();
 
 /* Optional custom sprite.
@@ -1103,13 +1119,13 @@ function currentSpeed() {
 }
 /* Stage-one difficulty: 0 -> 1 over the first 4200m. Drives corridor width and the
    obstacle mix. */
-function difficulty(d) { return clamp(d / 4200, 0, 1); }
+function difficulty(d) { return clamp(d / 3000, 0, 1); }
 /* Stage-two difficulty: 0 -> 1 over the NEXT 26000m, then eases on forever without
    ever reaching a hard stop. Before this existed the game was byte-for-byte identical
    past 11000m, so a player who could survive that could survive indefinitely. */
 function deepDifficulty(d) {
-  if (d <= 4200) return 0;
-  const t = (d - 4200) / 26000;
+  if (d <= 3000) return 0;
+  const t = (d - 3000) / 20000;
   return t < 1 ? t * t * (3 - 2 * t) : 1 + Math.log10(t) * 0.35;   // smoothstep, then a slow crawl
 }
 
@@ -1451,27 +1467,27 @@ const gen = {
     // Corridor keeps tightening past the first plateau, but never below GAP_FLOOR:
     // that is the width the largest vehicle plus its collision fudge genuinely needs,
     // so squeezing further would create corridors no vehicle could fit through.
-    const gap = Math.max(GAP_FLOOR, lerp(265, 158, diff) - deep * 34);
+    const gap = Math.max(GAP_FLOOR, lerp(256, 150, diff) - deep * 30);
     const h = gap / 2, minY = PHYS.ceiling + h + 14, maxY = view.floor - h - 14;
-    this.cy = clamp(this.cy + rand(-240, 240) * (1 + deep * 0.35), minY, maxY);
+    this.cy = clamp(this.cy + rand(-240, 240) * (1 + deep * 0.25), minY, maxY);
 
     // A breather chunk every 5th instead of every 4th — less downtime.
     let type = 'coins';
-    if (this.count >= 1 && this.count % 5 !== 4) {
+    if (this.count >= 1 && this.count % 6 !== 5) {
       const opts = [['pipe', 3], ['horizontal', 3]];
-      if (d > 200) opts.push(['diagonal', 2]);
-      if (d > 300) opts.push(['rotor', 4]);               // spinners now show up almost immediately
-      if (d > 400) opts.push(['mines', 2]);
-      if (d > 600) opts.push(['zigzag', 3]);
-      if (d > 900) opts.push(['gauntlet', 3]);            // fly-through spinning cross corridor
-      if (d > 1100) opts.push(['laser', 3]);
-      if (d > 1600) opts.push(['missile', 3]);
+      if (d > 150) opts.push(['diagonal', 2]);
+      if (d > 220) opts.push(['rotor', 4]);               // spinners show up almost immediately
+      if (d > 320) opts.push(['mines', 3]);
+      if (d > 450) opts.push(['zigzag', 3]);
+      if (d > 650) opts.push(['gauntlet', 4]);            // fly-through spinning cross corridor
+      if (d > 800) opts.push(['laser', 3]);
+      if (d > 1200) opts.push(['missile', 3]);
       type = weightedPick(opts, this.lastType);
     }
     let len = PATTERNS[type](x, this.cy, gap, diff, v, d) || 40;
     // Deep game: stack a second, independent hazard into the same chunk so the screen
     // actually fills up. Measured density was stuck at ~2 objects from 4200m onward.
-    if (deep > 0.25 && type !== 'coins' && Math.random() < Math.min(0.65, deep * 0.6)) {
+    if (deep > 0.15 && type !== 'coins' && Math.random() < Math.min(0.58, 0.08 + deep * 0.55)) {
       const extra = pick(['rotor', 'mines', 'horizontal', 'diagonal', 'laser']);
       PATTERNS[extra](x + len * 0.55, this.cy, gap, diff, v, d);
     }
@@ -1495,7 +1511,7 @@ const gen = {
     if (DEBUG) { this.hist[type] = (this.hist[type] || 0) + 1; if (this.firstAt[type] === undefined) this.firstAt[type] = Math.round(d); }
     this.lastType = type;
     // Chunks keep packing closer, floored so there is always time to react at all.
-    const spacing = Math.max(0.46, lerp(1.35, 0.78, diff) - deep * 0.22 + Math.random() * 0.4);
+    const spacing = Math.max(0.48, lerp(1.24, 0.72, diff) - deep * 0.20 + Math.random() * 0.36);
     this.nextX = x + len + v * spacing;
     this.count++;
   },
@@ -2824,6 +2840,7 @@ const ui = {
     $('menuBest').innerHTML = 'LOCAL BEST <b>' + fmt(localBest ? localBest.distance : 0) + 'm</b>';
     $('nameInput').value = identity.name;
     refreshMini(false);
+    updateRotateHint();
   },
 };
 
@@ -3099,6 +3116,19 @@ function renderMini(el, count) {
    panel is far more cramped, so it stays at five. */
 function renderAllMini() { renderMini($('menuLb'), 10); renderMini($('overLb'), 5); }
 
+/* Show the rotate prompt whenever the player is in portrait on a touch device — every
+   time they return to the menu, not once and never again. Landscape genuinely matters
+   here: the view is far wider, so you see roughly three times as much track ahead and
+   get about three times the warning before a hazard reaches you. */
+function updateRotateHint() {
+  const el = $('rotateHint');
+  if (!el) return;
+  const portrait = window.innerHeight > window.innerWidth;
+  const touch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+  const smallSide = Math.min(window.innerWidth, window.innerHeight);
+  el.classList.toggle('hidden', !(portrait && touch && smallSide < 820));
+}
+
 function refreshMini(force) {
   if (miniBoard.loading) return;
   if (!force && miniBoard.data && Date.now() - miniBoard.at < MINI_TTL) { renderAllMini(); return; }
@@ -3230,6 +3260,7 @@ resetWorld();
 player.y = (view.floor + PHYS.ceiling) / 2;
 ui.show('screenMenu'); ui.refreshMenu();
 refreshMini(true);            // populate the inline board on boot
+updateRotateHint();
 if (PRIZE.on) { tickPrize(); setInterval(tickPrize, 1000); }
 else { for (const id of ['prizeMenu', 'prizeOver']) $(id).classList.add('hidden'); }
 requestAnimationFrame(frame);
@@ -3268,7 +3299,7 @@ if (DEBUG) {
     /* The real difficulty curve, read from the game's own functions. */
     profile(d) {
       const diff = difficulty(d), deep = deepDifficulty(d), v = baseSpeedAt(d);
-      const gap = Math.max(GAP_FLOOR, lerp(265, 158, diff) - deep * 34);
+      const gap = Math.max(GAP_FLOOR, lerp(256, 150, diff) - deep * 30);
       return {
         d,
         diff: +diff.toFixed(3),
@@ -3280,7 +3311,7 @@ if (DEBUG) {
         // Seconds from a hazard appearing at the screen edge to reaching Chompy.
         reactS: +((view.w - view.playerX) / v).toFixed(2),
         // Seconds between obstacle chunks arriving.
-        chunkS: +Math.max(0.46, lerp(1.35, 0.78, diff) - deep * 0.22 + 0.2).toFixed(2),
+        chunkS: +Math.max(0.48, lerp(1.24, 0.72, diff) - deep * 0.20 + 0.18).toFixed(2),
         deep: +deep.toFixed(2),
       };
     },

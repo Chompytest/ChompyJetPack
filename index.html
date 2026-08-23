@@ -182,6 +182,80 @@
   @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
   .lb-empty { color: rgba(255,255,255,.6); font-weight: 700; padding: 24px 8px; letter-spacing: 1px; }
 
+  /* ---------- Menu layout ----------
+     Ten rows do not fit under the buttons on a phone in portrait, so the panel goes
+     two-column as soon as there is width for it (desktop and phone landscape), and
+     compacts vertically when there is not. The board is never behind a click. */
+  .menu-panel { width: min(440px, 100%); }
+  .menu-panel .mcol { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+  .mcol-lb { justify-content: flex-start; }
+  @media (min-width: 700px) {
+    .menu-panel { width: min(820px, 100%); display: grid; grid-template-columns: 1fr 0.86fr;
+      gap: 20px; align-items: stretch; text-align: left; }
+    .menu-panel .title, .menu-panel .menu-best { text-align: center; }
+  }
+  /* Short screens: claw back vertical space so all ten rows still land above the fold. */
+  @media (max-height: 900px) and (max-width: 699px) {
+    .menu-panel .title { font-size: clamp(28px, 7vmin, 40px); }
+    .menu-panel .title small { font-size: .38em; letter-spacing: 2px; margin-top: 3px; }
+    .menu-panel .prize { margin: 5px 0 6px; padding: 6px 8px 5px; }
+    .menu-panel .prize .ptitle { font-size: 15px; }
+    .menu-panel .prize .pclock { font-size: 16px; margin-top: 2px; }
+    .menu-panel .name-box { margin: 4px 0 7px; }
+    .menu-panel .name-box input { padding: 8px 10px; font-size: 16px; }
+    .menu-panel .btn { padding: 10px 14px; margin: 4px 0; }
+    .menu-panel .hint { display: none; }
+    .menu-panel .mini-lb { margin: 6px 0 4px; }
+  }
+
+  /* Very short phones (iPhone SE and friends): the top 10 is the priority, so trim
+     everything around it until the FULL BOARD button lands above the fold too. */
+  @media (max-height: 700px) and (max-width: 699px) {
+    .menu-panel .title { font-size: clamp(24px, 6vmin, 32px); }
+    .menu-panel .title small { font-size: .36em; margin-top: 2px; }
+    .menu-panel .menu-best { display: none; }
+    .menu-panel .prize .psub { font-size: 9px; letter-spacing: 1px; }
+    .menu-panel .prize .ptitle { font-size: 14px; }
+    .menu-panel .name-box label { font-size: 10px; }
+    .menu-panel .name-box input { font-size: 14px; letter-spacing: 1px; padding: 7px 8px; }
+    .menu-panel .btn { padding: 8px 12px; font-size: 18px; }
+    .menu-panel .mini-row { padding: 2px 6px; margin: 1.5px 0; font-size: 11px; }
+    .menu-panel .mini-row .rk, .menu-panel .mini-row .ds { font-size: 12px; }
+    .menu-panel .mini-lb .mh { padding-bottom: 3px; font-size: 9px; }
+  }
+
+  /* Short viewports at ANY width — phone landscape lands here, where the two-column
+     layout applies but there is barely 390px of height to put it in. */
+  @media (max-height: 560px) {
+    .menu-panel .title { font-size: clamp(22px, 5.4vmin, 30px); }
+    .menu-panel .title small { font-size: .36em; margin-top: 2px; letter-spacing: 2px; }
+    .menu-panel .menu-best, .menu-panel .hint, .menu-panel .rotate-tip { display: none; }
+    .menu-panel .prize { margin: 4px 0 5px; padding: 5px 8px 4px; }
+    .menu-panel .prize .ptitle { font-size: 13px; }
+    .menu-panel .prize .psub { font-size: 8.5px; letter-spacing: .8px; }
+    .menu-panel .prize .pclock { font-size: 15px; margin-top: 1px; }
+    .menu-panel .name-box { margin: 3px 0 5px; }
+    .menu-panel .name-box input { font-size: 13px; padding: 6px 8px; }
+    .menu-panel .btn { padding: 7px 12px; font-size: 16px; margin: 3px 0; }
+    .menu-panel .mini-row { padding: 1.5px 6px; margin: 1px 0; font-size: 10.5px; }
+    .menu-panel .mini-row .rk, .menu-panel .mini-row .ds { font-size: 11px; }
+    .menu-panel .mini-lb { margin: 3px 0 3px; }
+    .menu-panel .mini-lb .mh { padding-bottom: 2px; font-size: 8.5px; }
+  }
+
+  /* ---------- Prize banner + countdown ---------- */
+  .prize { margin: 8px 0 10px; padding: 9px 10px 8px; border-radius: 13px; text-align: center;
+    background: linear-gradient(180deg, rgba(255,210,63,.20), rgba(255,138,61,.10));
+    border: 1px solid rgba(255,210,63,.45); box-shadow: 0 0 18px rgba(255,210,63,.14) inset; }
+  .prize .ptitle { font-family: var(--font-head); font-size: clamp(16px, 3.4vmin, 21px);
+    color: var(--yellow); letter-spacing: 1px; line-height: 1.05; text-shadow: 0 2px 0 rgba(0,0,0,.45); }
+  .prize .psub { font-size: 10px; font-weight: 900; letter-spacing: 1.6px;
+    color: rgba(255,255,255,.7); margin-top: 3px; }
+  .prize .pclock { font-family: var(--font-head); font-size: clamp(17px, 3.8vmin, 23px);
+    color: #fff; letter-spacing: 2px; margin-top: 4px; text-shadow: 0 0 12px rgba(255,210,63,.55); }
+  .prize.done { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.15); }
+  .prize.done .ptitle, .prize.done .pclock { color: rgba(255,255,255,.5); text-shadow: none; }
+
   /* ---------- Near-miss combo meter ---------- */
   .combo { position: absolute; left: 50%; top: 92px; transform: translate(-50%, -6px) scale(.85);
     opacity: 0; transition: opacity .18s, transform .18s; text-align: center; pointer-events: none; }
@@ -199,12 +273,16 @@
   .mini-lb { margin: 10px 0 6px; text-align: left; }
   .mini-lb .mh { display: flex; justify-content: space-between; align-items: baseline;
     font-size: 10px; font-weight: 900; letter-spacing: 2px; color: rgba(255,255,255,.5); padding: 0 4px 5px; }
-  .mini-row { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 8px;
-    padding: 5px 8px; margin: 3px 0; border-radius: 9px; background: rgba(255,255,255,.05);
-    border: 1px solid rgba(255,255,255,.07); font-weight: 700; font-size: 13px; }
-  .mini-row .rk { font-family: var(--font-head); font-size: 15px; color: rgba(255,255,255,.65); text-align: center; }
-  .mini-row .nm { text-align: left; letter-spacing: 1px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mini-row .ds { font-family: var(--font-head); font-size: 15px; color: var(--yellow); letter-spacing: .5px; }
+  .mini-row { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 7px;
+    padding: 3px 7px; margin: 2px 0; border-radius: 8px; background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.07); font-weight: 700; font-size: 12px; }
+  .mini-row .rk { font-family: var(--font-head); font-size: 13px; color: rgba(255,255,255,.65); text-align: center; }
+  .mini-row .nm { text-align: left; letter-spacing: .8px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mini-row .ds { font-family: var(--font-head); font-size: 13px; color: var(--yellow); letter-spacing: .5px; }
+  /* The list itself scrolls only as a last resort on very short screens, so the board
+     is always present even when the viewport cannot show all ten at once. */
+  .mini-lb .rows { max-height: 46vh; overflow-y: auto; touch-action: pan-y; }
+  @media (min-width: 700px) { .mini-lb .rows { max-height: none; } }
   .mini-row.r1 { background: linear-gradient(90deg, rgba(255,210,63,.3), rgba(255,210,63,.06)); border-color: rgba(255,210,63,.6); }
   .mini-row.r2 { background: linear-gradient(90deg, rgba(220,230,255,.22), rgba(220,230,255,.05)); border-color: rgba(220,230,255,.5); }
   .mini-row.r3 { background: linear-gradient(90deg, rgba(205,127,50,.28), rgba(205,127,50,.06)); border-color: rgba(205,127,50,.6); }
@@ -245,19 +323,27 @@
 
   <!-- MAIN MENU -->
   <div class="screen" id="screenMenu">
-    <div class="panel">
-      <div class="title">CHOMPY<br>JET PACK<small>HOLD TO FLY · CHOMP COINS</small></div>
-      <div class="menu-best" id="menuBest">LOCAL BEST <b>0m</b></div>
-      <div class="name-box">
-        <label for="nameInput">YOUR NAME</label>
-        <input id="nameInput" maxlength="16" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="CHOMPY">
+    <div class="panel menu-panel">
+      <div class="mcol">
+        <div class="title">CHOMPY<br>JET PACK<small>HOLD TO FLY · CHOMP COINS</small></div>
+        <div class="menu-best" id="menuBest">LOCAL BEST <b>0m</b></div>
+        <div class="prize" id="prizeMenu">
+          <div class="ptitle">🎨 FREE ART FROM MIKEL</div>
+          <div class="psub">TOP OF THE LEADERBOARD · FRI 7:00 PM ET</div>
+          <div class="pclock">—</div>
+        </div>
+        <div class="name-box">
+          <label for="nameInput">YOUR NAME</label>
+          <input id="nameInput" maxlength="16" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ENTER NAME">
+        </div>
+        <button class="btn" id="btnPlay">▶ PLAY</button>
+        <div class="hint"><b>Desktop:</b> hold SPACE / click &nbsp;·&nbsp; <b>Mobile:</b> hold the screen<br>Grab a <b style="color:#8ab4ff">VEHICLE</b> — 11 of them, all different · P pause · M mute</div>
       </div>
-      <button class="btn" id="btnPlay">▶ PLAY</button>
-      <!-- Live top 5, always on screen — no click needed to see where you stand. -->
-      <div class="mini-lb" id="menuLb"></div>
-      <button class="btn secondary" id="btnLeaderboard">🏆 FULL LEADERBOARD</button>
-      <div class="hint"><b>Desktop:</b> hold SPACE / click &nbsp;·&nbsp; <b>Mobile:</b> hold the screen<br>Grab a <b style="color:#8ab4ff">VEHICLE</b> — 11 of them, all different · P pause · M mute</div>
-      <div class="rotate-tip">Tip: rotate your phone sideways for a wider view</div>
+      <!-- Live top 10, always on screen — no click needed to see where you stand. -->
+      <div class="mcol mcol-lb">
+        <div class="mini-lb" id="menuLb"></div>
+        <button class="btn secondary" id="btnLeaderboard">🏆 FULL BOARD</button>
+      </div>
     </div>
   </div>
 
@@ -273,6 +359,11 @@
         <div class="stat rank"><div class="k">GLOBAL RANK</div><div class="v" id="ovRank">…</div></div>
       </div>
       <div class="sub" id="ovScore">SCORE 0</div>
+      <div class="prize" id="prizeOver">
+        <div class="ptitle">🎨 FREE ART FROM MIKEL</div>
+        <div class="psub">TOP OF THE LEADERBOARD · FRI 7:00 PM ET</div>
+        <div class="pclock">—</div>
+      </div>
       <div class="mini-lb" id="overLb"></div>
       <button class="btn" id="btnAgain">▶ PLAY AGAIN</button>
       <div class="row">
@@ -450,6 +541,17 @@ const VEH_KEYS = Object.keys(VEHICLES);
    that a corridor which is fair on foot stays fair in every vehicle. */
 const VEH_MAX_RADIUS = Math.max(...VEH_KEYS.map((k) => VEHICLES[k].radius));
 const NAME_RE = /[^A-Za-z0-9 _.!?-]/g;
+/* Prize banner + countdown. `hourET`/`weekday` are wall-clock in New York, resolved
+   through the IANA zone rather than a fixed -4/-5 offset, so it stays correct across
+   daylight saving instead of silently drifting an hour every spring and autumn. */
+const PRIZE = {
+  on: true,
+  title: 'FREE ART FROM MIKEL',
+  sub: 'TOP OF THE LEADERBOARD',   // the board ranks by DISTANCE, not by score
+  weekday: 5,          // 0 = Sunday, 5 = Friday
+  hourET: 19,          // 19:00 = 7 PM
+  repeatWeekly: false, // true = rolls to the next Friday once the deadline passes
+};
 /* Near-miss combo. Skimming a hazard builds a multiplier that decays if you play it
    safe, so the roomy early game still asks something of you.
    `window` is how close counts as a skim, measured OUTSIDE the collision radius. */
@@ -517,10 +619,13 @@ if (!identity.id || !/^[A-Za-z0-9_-]{16,64}$/.test(identity.id)) {
   identity.id = randomId();
   store.set(STORE_KEYS.id, identity.id);
 }
-if (!identity.name) {
-  identity.name = 'CHOMPY' + randInt(100, 999);
-  store.set(STORE_KEYS.name, identity.name);
-}
+/* No auto-generated name — the box starts empty so the player types their own.
+   Anyone carrying an auto-assigned CHOMPY123 from an earlier build is migrated back to
+   empty, so returning players get the same clean slate rather than a name they never
+   chose. If a run is submitted with no name, the server falls back to "CHOMPY". */
+if (/^CHOMPY\d{3}$/.test(identity.name)) { identity.name = ''; store.set(STORE_KEYS.name, ''); }
+/** What to show wherever a name has to be rendered and the player hasn't set one. */
+const displayName = () => identity.name || 'CHOMPY';
 
 const settings = Object.assign({ muted: false }, store.get(STORE_KEYS.settings, {}));
 let localBest = store.get(STORE_KEYS.best, null);          // { distance, coins, score, duration, date }
@@ -2677,6 +2782,73 @@ function updateHud(force) {
   pu.forEach((p, i) => { if (bars[i]) bars[i].style.transform = 'scaleX(' + clamp(p[2], 0, 1).toFixed(3) + ')'; });
 }
 
+/* ---------------------------------------------------------------------
+   Prize deadline. Getting "Friday 7 PM ET" right means resolving a WALL CLOCK time
+   in America/New_York to a real instant, which is not a fixed offset: the zone is
+   UTC-4 in summer and UTC-5 in winter. We read the offset from the zone itself via
+   Intl, then correct once more in case the target lands on the other side of a DST
+   switch from today.
+   --------------------------------------------------------------------- */
+const ET_ZONE = 'America/New_York';
+const etFmt = new Intl.DateTimeFormat('en-US', {
+  timeZone: ET_ZONE, hour12: false, weekday: 'short',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit',
+});
+const ET_DAYS = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function etParts(date) {
+  const p = {};
+  for (const { type, value } of etFmt.formatToParts(date)) p[type] = value;
+  // Intl renders midnight as hour "24" in some engines; normalise it.
+  if (p.hour === '24') p.hour = '00';
+  return p;
+}
+/** Milliseconds that New York is offset from UTC at this instant (negative). */
+function etOffset(date) {
+  const p = etParts(date);
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - date.getTime();
+}
+/** The real instant for a given New York wall-clock date/time. */
+function etWallToInstant(y, mo, d, hh) {
+  const naive = Date.UTC(y, mo, d, hh, 0, 0);
+  let inst = naive - etOffset(new Date(naive));
+  inst = naive - etOffset(new Date(inst));      // second pass handles a DST crossing
+  return inst;
+}
+function prizeDeadline(now) {
+  const p = etParts(now);
+  const y = +p.year, mo = +p.month - 1, d = +p.day;
+  const today = ET_DAYS[p.weekday];
+  let ahead = (PRIZE.weekday - today + 7) % 7;
+  let target = etWallToInstant(y, mo, d + ahead, PRIZE.hourET);
+  if (target <= now.getTime()) target = etWallToInstant(y, mo, d + ahead + 7, PRIZE.hourET);
+  return target;
+}
+
+let prizeEnd = 0;
+function prizeCountdown(msLeft) {
+  if (msLeft <= 0) return null;
+  const s = Math.floor(msLeft / 1000);
+  const dd = Math.floor(s / 86400), hh = Math.floor((s % 86400) / 3600);
+  const mm = Math.floor((s % 3600) / 60), ss = s % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return (dd > 0 ? dd + 'd ' : '') + pad(hh) + ':' + pad(mm) + ':' + pad(ss);
+}
+function tickPrize() {
+  if (!PRIZE.on) return;
+  const now = Date.now();
+  if (!prizeEnd || (now >= prizeEnd && PRIZE.repeatWeekly)) prizeEnd = prizeDeadline(new Date(now));
+  const left = prizeEnd - now;
+  const text = prizeCountdown(left);
+  for (const id of ['prizeMenu', 'prizeOver']) {
+    const el = $(id); if (!el) continue;
+    const clock = el.querySelector('.pclock');
+    if (text) { clock.textContent = text + ' LEFT'; el.classList.remove('done'); }
+    else { clock.textContent = 'ENTRIES CLOSED'; el.classList.add('done'); }
+  }
+}
+
 let bannerTimer = 0;
 function showBanner(text, best) {
   const el = $('banner');
@@ -2771,7 +2943,8 @@ function showGameOver() {
     + (run.bestCombo > 1 ? '  ·  BEST COMBO x' + run.bestCombo + ' (' + run.nearMisses + ' NEAR MISSES)' : '');
   $('newBest').classList.toggle('hidden', !(run.isBest && run.distance > 0));
   renderRank(run);
-  renderMini($('overLb'));
+  renderMini($('overLb'), 5);
+  tickPrize();
   ui.show('screenOver');
   $('hud').classList.remove('on');
 }
@@ -2796,11 +2969,12 @@ function miniRow(rank, name, distance, you) {
   return row;
 }
 
-function renderMini(el) {
+function renderMini(el, count) {
   if (!el) return;
+  const n = count || 5;
   el.innerHTML = '';
   const head = document.createElement('div'); head.className = 'mh';
-  const left = document.createElement('span'); left.textContent = 'GLOBAL TOP 5';
+  const left = document.createElement('span'); left.textContent = 'GLOBAL TOP ' + n;
   const right = document.createElement('span');
   head.appendChild(left); head.appendChild(right);
   el.appendChild(head);
@@ -2813,30 +2987,34 @@ function renderMini(el) {
     el.appendChild(n);
     // With no server, your own best is still worth showing rather than a dead panel.
     if (miniBoard.failed && localBest) {
-      el.appendChild(miniRow('—', identity.name, localBest.distance, true));
+      el.appendChild(miniRow('—', displayName(), localBest.distance, true));
     }
     return;
   }
 
-  const leaders = Array.isArray(d.leaders) ? d.leaders.slice(0, 5) : [];
+  const leaders = Array.isArray(d.leaders) ? d.leaders.slice(0, n) : [];
   if (d.total) right.textContent = fmt(d.total) + ' PLAYERS';
   if (!leaders.length) {
-    const n = document.createElement('div'); n.className = 'mini-note';
-    n.textContent = 'NO SCORES YET — BE THE FIRST!';
-    el.appendChild(n);
+    const e = document.createElement('div'); e.className = 'mini-note';
+    e.textContent = 'NO SCORES YET — BE THE FIRST!';
+    el.appendChild(e);
     return;
   }
+  const rows = document.createElement('div'); rows.className = 'rows';
   let inList = false;
-  for (const r of leaders) { el.appendChild(miniRow(r.rank, r.name, r.distance, !!r.you)); if (r.you) inList = true; }
-  // If you're outside the top 5, pin your own row underneath with an ellipsis gap.
+  for (const r of leaders) { rows.appendChild(miniRow(r.rank, r.name, r.distance, !!r.you)); if (r.you) inList = true; }
+  el.appendChild(rows);
+  // If you're outside the shown rows, pin your own row underneath with an ellipsis gap.
   if (!inList && d.player && d.player.rank) {
     const gap = document.createElement('div'); gap.className = 'mini-row gap'; gap.textContent = '···';
     el.appendChild(gap);
-    el.appendChild(miniRow(d.player.rank, identity.name, d.player.best, true));
+    el.appendChild(miniRow(d.player.rank, displayName(), d.player.best, true));
   }
 }
 
-function renderAllMini() { renderMini($('menuLb')); renderMini($('overLb')); }
+/* Menu has room for ten (two-column on wide, compacted on tall-narrow); the game-over
+   panel is far more cramped, so it stays at five. */
+function renderAllMini() { renderMini($('menuLb'), 10); renderMini($('overLb'), 5); }
 
 function refreshMini(force) {
   if (miniBoard.loading) return;
@@ -2919,7 +3097,7 @@ function renderLeaderboard(data) {
     body.appendChild(list);
     if (!inList && data.player && data.player.rank) {
       const you = document.createElement('div'); you.className = 'lb-you';
-      you.appendChild(lbRow(data.player.rank, identity.name, data.player.best, true));
+      you.appendChild(lbRow(data.player.rank, displayName(), data.player.best, true));
       body.appendChild(you);
     } else if (!inList) {
       const e = document.createElement('div'); e.className = 'lb-empty'; e.textContent = 'FLY A RUN TO GET RANKED';
@@ -2935,14 +3113,14 @@ function renderLeaderboard(data) {
 function saveName() {
   const inp = $('nameInput');
   const name = cleanName(inp.value);
-  if (!name) { inp.value = identity.name; return; }
-  inp.value = name;
-  if (name !== identity.name) {
-    identity.name = name; store.set(STORE_KEYS.name, name);
-    toast('NAME SAVED: ' + name.toUpperCase());
-    // Push the new name to the server using the best run we already have (score unchanged).
-    if (localBest && localBest.distance > 0) LB.submit(localBest).catch(() => {});
-  }
+  inp.value = name;                       // empty is allowed; don't snap back
+  if (name === identity.name) return;
+  identity.name = name;
+  store.set(STORE_KEYS.name, name);
+  if (!name) return;
+  toast('NAME SAVED: ' + name.toUpperCase());
+  // Push the new name to the server using the best run we already have (score unchanged).
+  if (localBest && localBest.distance > 0) LB.submit(localBest).catch(() => {});
 }
 $('nameInput').addEventListener('change', saveName);
 $('nameInput').addEventListener('blur', saveName);
@@ -2969,6 +3147,8 @@ resetWorld();
 player.y = (view.floor + PHYS.ceiling) / 2;
 ui.show('screenMenu'); ui.refreshMenu();
 refreshMini(true);            // populate the inline board on boot
+if (PRIZE.on) { tickPrize(); setInterval(tickPrize, 1000); }
+else { for (const id of ['prizeMenu', 'prizeOver']) $(id).classList.add('hidden'); }
 requestAnimationFrame(frame);
 
 /* ?debug=1 exposes a few read-mostly hooks for testing (no gameplay effect otherwise) */

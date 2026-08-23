@@ -229,7 +229,7 @@
   @media (max-height: 560px) {
     .menu-panel .title { font-size: clamp(22px, 5.4vmin, 30px); }
     .menu-panel .title small { font-size: .36em; margin-top: 2px; letter-spacing: 2px; }
-    .menu-panel .menu-best, .menu-panel .hint, .menu-panel .rotate-tip { display: none; }
+    .menu-panel .menu-best, .menu-panel .hint { display: none; }
     .menu-panel .prize { margin: 4px 0 5px; padding: 5px 8px 4px; }
     .menu-panel .prize .ptitle { font-size: 13px; }
     .menu-panel .prize .psub { font-size: 8.5px; letter-spacing: .8px; }
@@ -295,8 +295,6 @@
   #toast { position: absolute; left: 50%; bottom: calc(24px + var(--safe-bottom)); transform: translateX(-50%) translateY(20px); opacity: 0;
     background: rgba(10,16,38,.92); border: 1px solid rgba(255,255,255,.2); padding: 10px 16px; border-radius: 12px; font-weight: 900; letter-spacing: 1px; font-size: 13px; transition: all .25s; white-space: nowrap; }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  .rotate-tip { display: none; font-size: 12px; color: rgba(255,255,255,.6); margin-top: 8px; font-weight: 700; }
-  @media (orientation: portrait) and (max-width: 600px) { .rotate-tip { display: block; } }
   @media (max-height: 520px) { .panel { padding: 12px 16px 10px; } .title { font-size: 34px; } .btn { padding: 9px 14px; margin: 4px 0; } .stats { margin: 8px 0 4px; } .stat { padding: 6px; } .lb-list { max-height: 40vh; } }
 </style>
 </head>

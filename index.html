@@ -289,7 +289,9 @@
     border: 1px solid rgba(255,255,255,.07); font-weight: 700; font-size: 12px; }
   .mini-row .rk { font-family: var(--font-head); font-size: 13px; color: rgba(255,255,255,.65); text-align: center; }
   .mini-row .nm { text-align: left; letter-spacing: .8px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mini-row .ds { font-family: var(--font-head); font-size: 13px; color: var(--yellow); letter-spacing: .5px; }
+  .mini-row .ds { font-family: var(--font-head); font-size: 13px; color: var(--yellow); letter-spacing: .5px; text-align: right; }
+  .ds .dsub { display: block; font-family: var(--font-ui); font-style: normal; font-weight: 700;
+    font-size: 9px; letter-spacing: .5px; color: rgba(255,255,255,.45); margin-top: -2px; }
   /* The list itself scrolls only as a last resort on very short screens, so the board
      is always present even when the viewport cannot show all ten at once. */
   .mini-lb .rows { max-height: 46vh; overflow-y: auto; touch-action: pan-y; }
@@ -343,7 +345,7 @@
         <div class="menu-best" id="menuBest">LOCAL BEST <b>0m</b></div>
         <div class="prize" id="prizeMenu">
           <div class="ptitle">🎨 FREE ART FROM MIKEL</div>
-          <div class="psub">TOP OF THE LEADERBOARD · FRI 7:00 PM ET</div>
+          <div class="psub">HIGHEST SCORE WINS · FRI 7:00 PM ET</div>
           <div class="pclock">—</div>
         </div>
         <div class="name-box">
@@ -367,15 +369,15 @@
       <div class="h2 red">CHOMPY CRASHED!</div>
       <div id="newBest" class="badge hidden">★ NEW BEST! ★</div>
       <div class="stats">
-        <div class="stat gold"><div class="k">DISTANCE</div><div class="v" id="ovDist">0m</div></div>
+        <div class="stat gold"><div class="k">SCORE</div><div class="v" id="ovDist">0</div></div>
         <div class="stat"><div class="k">COINS</div><div class="v" id="ovCoins">0</div></div>
-        <div class="stat"><div class="k">BEST</div><div class="v" id="ovBest">0m</div></div>
+        <div class="stat"><div class="k">BEST SCORE</div><div class="v" id="ovBest">0</div></div>
         <div class="stat rank"><div class="k">GLOBAL RANK</div><div class="v" id="ovRank">…</div></div>
       </div>
       <div class="sub" id="ovScore">SCORE 0</div>
       <div class="prize" id="prizeOver">
         <div class="ptitle">🎨 FREE ART FROM MIKEL</div>
-        <div class="psub">TOP OF THE LEADERBOARD · FRI 7:00 PM ET</div>
+        <div class="psub">HIGHEST SCORE WINS · FRI 7:00 PM ET</div>
         <div class="pclock">—</div>
       </div>
       <div class="mini-lb" id="overLb"></div>
@@ -401,7 +403,7 @@
   <div class="screen hidden dim" id="screenLB">
     <div class="panel wide">
       <div class="h2">GLOBAL LEADERBOARD</div>
-      <div class="lb-head"><span>TOP 25 · LONGEST DISTANCE</span><span id="lbTotal"></span></div>
+      <div class="lb-head"><span>TOP 25 · HIGHEST SCORE</span><span id="lbTotal"></span></div>
       <div id="lbBody"></div>
       <div class="row">
         <button class="btn secondary hidden" id="btnLbRetry">↻ RETRY</button>
@@ -561,7 +563,7 @@ const NAME_RE = /[^A-Za-z0-9 _.!?-]/g;
 const PRIZE = {
   on: true,
   title: 'FREE ART FROM MIKEL',
-  sub: 'TOP OF THE LEADERBOARD',   // the board ranks by DISTANCE, not by score
+  sub: 'HIGHEST SCORE WINS',       // the board ranks by score = distance + coins x 5
   weekday: 5,          // 0 = Sunday, 5 = Friday
   hourET: 19,          // 19:00 = 7 PM
   repeatWeekly: false, // true = rolls to the next Friday once the deadline passes
@@ -644,6 +646,8 @@ const displayName = () => identity.name || 'CHOMPY';
 const settings = Object.assign({ muted: false }, store.get(STORE_KEYS.settings, {}));
 let localBest = store.get(STORE_KEYS.best, null);          // { distance, coins, score, duration, date }
 if (localBest && typeof localBest.distance !== 'number') localBest = null;
+// Records saved before the board ranked by score have no score field; derive one.
+if (localBest && typeof localBest.score !== 'number') localBest.score = localBest.distance;
 let syncedBest = store.get(STORE_KEYS.synced, 0);          // best distance the server has confirmed
 let cachedRank = store.get(STORE_KEYS.rank, null);
 
@@ -877,7 +881,14 @@ const view = { w: 960, h: 540, scale: 1, dpr: 1, floor: 470, playerX: 210 };
 
 function resize() {
   const iw = Math.max(1, window.innerWidth), ih = Math.max(1, window.innerHeight);
+  /* Cap the backing store by AREA as well as by ratio. iOS enforces a total canvas
+     memory limit and silently hands back a blank canvas past it — which loses the whole
+     scene, not just one sprite. Well clear of the limit on any phone, but cheap. */
   view.dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const MAX_CANVAS_PX = 8e6;
+  if (iw * ih * view.dpr * view.dpr > MAX_CANVAS_PX) {
+    view.dpr = Math.max(1, Math.sqrt(MAX_CANVAS_PX / (iw * ih)));
+  }
   view.scale = (iw / ih >= 420 / 540) ? ih / 540 : iw / 420;
   view.w = iw / view.scale; view.h = ih / view.scale;
   view.floor = view.h - PHYS.groundH;
@@ -899,14 +910,45 @@ resize();
 const SPRITE_ANCHOR = { x: 0.620, y: 0.608 };
 const SPRITE_BODY_FRAC = 0.683;
 const SPRITE_BODY_PX = 62;                 // how wide the body should draw, in game units
+/* Load an image and PRE-RENDER it into an offscreen canvas before declaring it usable.
+   `onload` only means the bytes arrived — it does NOT mean the image has been decoded.
+   Mobile Safari in particular decodes lazily, and drawImage() on an undecoded image
+   silently draws nothing: no error, no exception, just an invisible Chompy. Because the
+   sprite reported success, the code-drawn fallback never ran either, so some phones
+   showed no character at all.
+
+   Drawing once into a canvas forces the rasterisation up front, and sampling the result
+   proves it actually produced pixels. If it comes back blank we mark the sprite failed
+   and the built-in drawn Chompy takes over — a visible character either way. */
 function loadSprite(url) {
-  const s = { img: null, ok: false };
-  if (url) {
-    const img = new Image();
-    img.onload = () => { if (img.naturalWidth > 0) { s.img = img; s.ok = true; } };
-    img.onerror = () => { s.ok = false; };
-    img.src = url;
-  }
+  const s = { img: null, ok: false, w: 0, h: 0 };
+  if (!url) return s;
+  const img = new Image();
+  img.decoding = 'sync';
+  img.onerror = () => { s.ok = false; };
+  img.onload = () => {
+    const finish = () => {
+      if (!img.naturalWidth || !img.naturalHeight) return;
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        const cx = c.getContext('2d', { willReadFrequently: true });
+        cx.drawImage(img, 0, 0);
+        // Did anything actually land? A failed decode leaves this fully transparent.
+        const px = cx.getImageData(0, 0, c.width, c.height).data;
+        let opaque = 0;
+        for (let i = 3; i < px.length; i += 4 * 7) if (px[i] > 8) opaque++;
+        if (opaque < 12) throw new Error('sprite decoded blank');
+        s.img = c; s.w = c.width; s.h = c.height; s.ok = true;
+      } catch (_) {
+        s.ok = false;          // fall back to the code-drawn character
+      }
+    };
+    // decode() resolves only once the image is genuinely ready to paint.
+    if (img.decode) img.decode().then(finish, finish);
+    else finish();
+  };
+  img.src = url;
   return s;
 }
 const sprite = loadSprite(CHOMPY_SPRITE_URL);
@@ -915,16 +957,15 @@ const cloudSprite = loadSprite(CLOUD_SPRITE_URL);
 
 /** Draw an image centred on (0,0) at a given width, keeping its aspect ratio. */
 function drawImageAt(spr, w, cx, cy) {
-  const img = spr.img, h = (img.naturalHeight / img.naturalWidth) * w;
-  ctx.drawImage(img, (cx || 0) - w / 2, (cy || 0) - h / 2, w, h);
+  const h = (spr.h / spr.w) * w;
+  ctx.drawImage(spr.img, (cx || 0) - w / 2, (cy || 0) - h / 2, w, h);
 }
 
 /** Draw the sprite so its body centre lands on (0,0) and its body is bodyPx wide. */
 function drawSprite(bodyPx) {
-  const img = sprite.img;
   const w = bodyPx / SPRITE_BODY_FRAC;
-  const h = (img.naturalHeight / img.naturalWidth) * w;
-  ctx.drawImage(img, -SPRITE_ANCHOR.x * w, -SPRITE_ANCHOR.y * h, w, h);
+  const h = (sprite.h / sprite.w) * w;
+  ctx.drawImage(sprite.img, -SPRITE_ANCHOR.x * w, -SPRITE_ANCHOR.y * h, w, h);
 }
 
 /* =====================================================================
@@ -944,6 +985,9 @@ let passedBest = false;
 let nextMilestone = 1000;
 let attractT = 0;                // menu idle animation clock
 let combo = 0, comboT = 0, comboBest = 0, nearMisses = 0, comboBudget = 0;
+/* What the leaderboard actually ranks: distance plus coins. Must stay in step with the
+   final score in die() and with PLAUSIBILITY.coinScoreValue on the server. */
+function liveScore() { return Math.floor(distanceM) + coins * COIN_VALUE; }
 
 const player = {
   y: 300, vy: 0, onGround: false, thrust: 0, tilt: 0, mouth: 0, mouthT: 0, chomp: 0,
@@ -2132,7 +2176,7 @@ function stepWorld(h) {
     showBanner(fmt(nextMilestone) + 'm', false); audio.play('milestone');
     nextMilestone += 1000;
   }
-  if (!passedBest && localBest && distanceM > localBest.distance) {
+  if (!passedBest && localBest && liveScore() > (localBest.score || 0)) {
     passedBest = true; showBanner('NEW BEST!', true); audio.play('newbest');
   }
 }
@@ -2178,7 +2222,9 @@ function die() {
   const distance = Math.floor(distanceM);
   currentRun = { distance, coins, score: distance + coins * COIN_VALUE, duration: Math.round(runTime * 10) / 10,
     bestCombo: comboBest, nearMisses, date: new Date().toISOString() };
-  currentRun.isBest = !localBest || distance > localBest.distance;
+  // Best is by SCORE now — coins count towards your placing, so a shorter run with a
+  // lot of coins can legitimately beat a longer one.
+  currentRun.isBest = !localBest || currentRun.score > (localBest.score || 0);
   if (currentRun.isBest) { localBest = Object.assign({}, currentRun); store.set(STORE_KEYS.best, localBest); }
   syncRun(currentRun);
 }
@@ -2837,19 +2883,24 @@ const ui = {
     for (const s of SCREENS) $(s).classList.toggle('hidden', s !== id);
   },
   refreshMenu() {
-    $('menuBest').innerHTML = 'LOCAL BEST <b>' + fmt(localBest ? localBest.distance : 0) + 'm</b>';
+    $('menuBest').innerHTML = 'BEST SCORE <b>' + fmt(localBest ? localBest.score || 0 : 0) + '</b>'
+      + (localBest ? ' <span style="opacity:.6">· ' + fmt(localBest.distance) + 'm</span>' : '');
     $('nameInput').value = identity.name;
     refreshMini(false);
     updateRotateHint();
   },
 };
 
-let hudLast = { d: -1, c: -1, pu: '' };
+let hudLast = { d: -1, c: -1, s: -1, pu: '' };
 function updateHud(force) {
   const d = Math.floor(distanceM);
   if (force || d !== hudLast.d) { hudLast.d = d; $('hudDist').textContent = fmt(d) + 'm'; }
   if (force || coins !== hudLast.c) { hudLast.c = coins; $('hudCoins').textContent = fmt(coins); }
-  if (force) $('hudBest').textContent = 'BEST ' + fmt(localBest ? localBest.distance : 0) + 'm';
+  const sc = liveScore();
+  if (force || sc !== hudLast.s) {
+    hudLast.s = sc;
+    $('hudBest').textContent = 'SCORE ' + fmt(sc) + '   BEST ' + fmt(localBest ? localBest.score || 0 : 0);
+  }
   const cEl = $('combo');
   const showCombo = combo > 1;
   cEl.classList.toggle('on', showCombo);
@@ -3005,7 +3056,7 @@ let syncSeq = 0;
 async function syncRun(run) {
   const seq = ++syncSeq;
   // If a previous, better run never reached the server, send that one instead.
-  const payload = (localBest && localBest.distance > syncedBest && localBest.distance > run.distance) ? localBest : run;
+  const payload = (localBest && (localBest.score || 0) > syncedBest && (localBest.score || 0) > run.score) ? localBest : run;
   run.rankText = null; run.rankNote = 'SYNCING';
   renderRank(run);
   try {
@@ -3036,12 +3087,13 @@ function renderRank(run) {
 
 function showGameOver() {
   const run = currentRun; if (!run) return;
-  $('ovDist').textContent = fmt(run.distance) + 'm';
+  $('ovDist').textContent = fmt(run.score);
   $('ovCoins').textContent = fmt(run.coins);
-  $('ovBest').textContent = fmt(localBest ? localBest.distance : run.distance) + 'm';
-  $('ovScore').textContent = 'SCORE ' + fmt(run.score) + '  ·  ' + run.duration.toFixed(1) + 's'
-    + (run.bestCombo > 1 ? '  ·  BEST COMBO x' + run.bestCombo + ' (' + run.nearMisses + ' NEAR MISSES)' : '');
-  $('newBest').classList.toggle('hidden', !(run.isBest && run.distance > 0));
+  $('ovBest').textContent = fmt(localBest ? localBest.score || 0 : run.score);
+  $('ovScore').textContent = fmt(run.distance) + 'm  ·  ' + fmt(run.coins) + ' COINS x' + COIN_VALUE
+    + '  ·  ' + run.duration.toFixed(1) + 's'
+    + (run.bestCombo > 1 ? '  ·  COMBO x' + run.bestCombo : '');
+  $('newBest').classList.toggle('hidden', !(run.isBest && run.score > 0));
   renderRank(run);
   renderMini($('overLb'), 5);
   tickPrize();
@@ -3057,14 +3109,20 @@ function showGameOver() {
 const miniBoard = { data: null, at: 0, loading: false, failed: false };
 const MINI_TTL = 20000;
 
-function miniRow(rank, name, distance, you) {
+function miniRow(rank, name, score, you, distance) {
   const row = document.createElement('div');
   row.className = 'mini-row' + (rank <= 3 ? ' r' + rank : '') + (you ? ' you' : '');
   const rk = document.createElement('div'); rk.className = 'rk';
   rk.textContent = rank === 1 ? '👑' : '#' + rank;
   const nm = document.createElement('div'); nm.className = 'nm';
   nm.textContent = String(name || 'CHOMPY').toUpperCase();
-  const ds = document.createElement('div'); ds.className = 'ds'; ds.textContent = fmt(distance) + 'm';
+  const ds = document.createElement('div'); ds.className = 'ds';
+  ds.textContent = fmt(score);
+  if (distance) {
+    const sub = document.createElement('i'); sub.className = 'dsub';
+    sub.textContent = fmt(distance) + 'm';
+    ds.appendChild(sub);
+  }
   row.appendChild(rk); row.appendChild(nm); row.appendChild(ds);
   return row;
 }
@@ -3074,7 +3132,7 @@ function renderMini(el, count) {
   const n = count || 5;
   el.innerHTML = '';
   const head = document.createElement('div'); head.className = 'mh';
-  const left = document.createElement('span'); left.textContent = 'GLOBAL TOP ' + n;
+  const left = document.createElement('span'); left.textContent = 'GLOBAL TOP ' + n + ' · SCORE';
   const right = document.createElement('span');
   head.appendChild(left); head.appendChild(right);
   el.appendChild(head);
@@ -3087,7 +3145,7 @@ function renderMini(el, count) {
     el.appendChild(n);
     // With no server, your own best is still worth showing rather than a dead panel.
     if (miniBoard.failed && localBest) {
-      el.appendChild(miniRow('—', displayName(), localBest.distance, true));
+      el.appendChild(miniRow('—', displayName(), localBest.score || 0, true, localBest.distance));
     }
     return;
   }
@@ -3102,13 +3160,13 @@ function renderMini(el, count) {
   }
   const rows = document.createElement('div'); rows.className = 'rows';
   let inList = false;
-  for (const r of leaders) { rows.appendChild(miniRow(r.rank, r.name, r.distance, !!r.you)); if (r.you) inList = true; }
+  for (const r of leaders) { rows.appendChild(miniRow(r.rank, r.name, r.score, !!r.you, r.distance)); if (r.you) inList = true; }
   el.appendChild(rows);
   // If you're outside the shown rows, pin your own row underneath with an ellipsis gap.
   if (!inList && d.player && d.player.rank) {
     const gap = document.createElement('div'); gap.className = 'mini-row gap'; gap.textContent = '···';
     el.appendChild(gap);
-    el.appendChild(miniRow(d.player.rank, displayName(), d.player.best, true));
+    el.appendChild(miniRow(d.player.rank, displayName(), d.player.best, true, d.player.distance));
   }
 }
 
@@ -3176,21 +3234,23 @@ async function loadLeaderboard() {
     body.appendChild(st);
     if (localBest) {
       const me = document.createElement('div'); me.className = 'lb-empty';
-      me.textContent = 'YOUR LOCAL BEST: ' + fmt(localBest.distance) + 'm';
+      me.textContent = 'YOUR BEST SCORE: ' + fmt(localBest.score || 0) + ' (' + fmt(localBest.distance) + 'm)';
       body.appendChild(me);
     }
     $('btnLbRetry').classList.remove('hidden');
   }
 }
 
-function lbRow(rank, name, distance, you) {
+function lbRow(rank, name, score, you, distance) {
   const row = document.createElement('div');
   row.className = 'lb-row' + (rank <= 3 ? ' top r' + rank : '') + (you ? ' you' : '');
   const rk = document.createElement('div'); rk.className = 'rk';
   rk.textContent = rank === 1 ? '👑' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '#' + rank;
   const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = String(name || 'CHOMPY').toUpperCase();
   if (you) { const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = 'YOU'; nm.appendChild(tag); }
-  const ds = document.createElement('div'); ds.className = 'ds'; ds.textContent = fmt(distance) + 'm';
+  const ds = document.createElement('div'); ds.className = 'ds';
+  ds.textContent = fmt(score);
+  if (distance) { const sub = document.createElement('i'); sub.className = 'dsub'; sub.textContent = fmt(distance) + 'm'; ds.appendChild(sub); }
   row.appendChild(rk); row.appendChild(nm); row.appendChild(ds);
   return row;
 }
@@ -3206,11 +3266,11 @@ function renderLeaderboard(data) {
   } else {
     const list = document.createElement('div'); list.className = 'lb-list';
     let inList = false;
-    for (const row of leaders) { list.appendChild(lbRow(row.rank, row.name, row.distance, !!row.you)); if (row.you) inList = true; }
+    for (const row of leaders) { list.appendChild(lbRow(row.rank, row.name, row.score, !!row.you, row.distance)); if (row.you) inList = true; }
     body.appendChild(list);
     if (!inList && data.player && data.player.rank) {
       const you = document.createElement('div'); you.className = 'lb-you';
-      you.appendChild(lbRow(data.player.rank, displayName(), data.player.best, true));
+      you.appendChild(lbRow(data.player.rank, displayName(), data.player.best, true, data.player.distance));
       body.appendChild(you);
     } else if (!inList) {
       const e = document.createElement('div'); e.className = 'lb-empty'; e.textContent = 'FLY A RUN TO GET RANKED';
@@ -3318,6 +3378,8 @@ if (DEBUG) {
     get combo() { return combo; },
     get comboBest() { return comboBest; },
     get nearMisses() { return nearMisses; },
+    sprites: () => ({ chompy: sprite.ok, ace: aceSprite.ok, cloud: cloudSprite.ok }),
+    renderOnce() { drawFrame(performance.now()); },
     vehicles: VEH_KEYS,
     ride(key) { startVehicle(key); },
     tap() { input.pressed = true; },

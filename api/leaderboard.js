@@ -27,6 +27,9 @@
 /* ------------------------------------------------------------------ */
 
 const LEADERBOARD_SIZE = 25;           // rows returned to the game
+/* How many raw rows to read before merging duplicate names down. Must comfortably
+   exceed LEADERBOARD_SIZE or a burst of duplicates could leave a short page. */
+const MERGE_DEPTH = 400;
 const NAME_MAX_LENGTH = 16;            // display name limit
 const PLAYER_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
@@ -107,18 +110,20 @@ async function handleGet(req, res, redis) {
   const rawId = url.searchParams.get('playerId') || '';
   const playerId = PLAYER_ID_RE.test(rawId) ? rawId : null;
 
+  // Read deeper than we display, because merging by name collapses rows and we still
+  // want a full page of results afterwards.
   const commands = [
-    ['ZREVRANGE', KEY.board, '0', String(LEADERBOARD_SIZE - 1), 'WITHSCORES'],
+    ['ZREVRANGE', KEY.board, '0', String(MERGE_DEPTH - 1), 'WITHSCORES'],
     ['ZCARD', KEY.board],
   ];
   if (playerId) {
-    commands.push(['ZREVRANK', KEY.board, playerId]);
     commands.push(['ZSCORE', KEY.board, playerId]);
+    commands.push(['HGET', KEY.names, playerId]);
   }
 
   const results = await redis.pipeline(commands);
   const flat = Array.isArray(results[0]) ? results[0] : [];
-  const total = toInt(results[1]) || 0;
+  const totalRows = toInt(results[1]) || 0;
 
   const ids = [];
   const distances = [];
@@ -134,21 +139,57 @@ async function handleGet(req, res, redis) {
     names = Array.isArray(got) ? got : [];
   }
 
+  /* Merge rows that share a display name, keeping the best.
+     The board is keyed by playerId, which is deliberate — it stops one player filling
+     the board with repeat runs, and it means nobody can overwrite your score just by
+     typing your name. But one PERSON legitimately has several ids: phone and laptop,
+     a private window, cleared site data. Those showed up as duplicate names.
+     Entries arrive in descending distance order, so the first time a name appears it
+     is already that name's best run; later ones just fold into it. Matching is
+     case-insensitive because the UI renders every name uppercase anyway. */
+  const byName = new Map();
+  const board = [];
+  for (let i = 0; i < ids.length; i++) {
+    const name = cleanName(names[i]);
+    const key = name.toUpperCase();
+    const existing = byName.get(key);
+    if (existing) { existing.ids.push(ids[i]); continue; }
+    const row = { name, distance: distances[i], ids: [ids[i]] };
+    byName.set(key, row);
+    board.push(row);
+  }
+
   // NOTE: player IDs are never returned — they are each player's private identity.
-  const leaders = ids.map((id, i) => ({
+  const leaders = board.slice(0, LEADERBOARD_SIZE).map((row, i) => ({
     rank: i + 1,
-    name: cleanName(names[i]),
-    distance: distances[i],
-    you: playerId !== null && id === playerId,
+    name: row.name,
+    distance: row.distance,
+    you: playerId !== null && row.ids.indexOf(playerId) !== -1,
   }));
 
   let player = null;
   if (playerId && results[2] !== null && results[2] !== undefined) {
-    player = {
-      rank: toInt(results[2]) + 1,
-      best: Math.floor(Number(results[3]) || 0),
-    };
+    const myBest = Math.floor(Number(results[2]) || 0);
+    const myName = cleanName(results[3]).toUpperCase();
+    // Your rank is the rank of your NAME's merged row, so a lower run on a second
+    // device does not report a worse position than the board actually shows.
+    let idx = -1;
+    for (let i = 0; i < board.length; i++) {
+      if (board[i].ids.indexOf(playerId) !== -1 || board[i].name.toUpperCase() === myName) { idx = i; break; }
+    }
+    if (idx >= 0) {
+      player = { rank: idx + 1, best: Math.max(myBest, board[idx].distance) };
+    } else {
+      // Outside the window we read, so fall back to the raw rank. It counts unmerged
+      // duplicates and is therefore an upper bound, not an exact position.
+      const [rawRank] = await redis.pipeline([['ZREVRANK', KEY.board, playerId]]);
+      const r = rawRank === null || rawRank === undefined ? null : toInt(rawRank) + 1;
+      player = { rank: r, best: myBest, approx: true };
+    }
   }
+
+  // Unique names, exact while the whole board fits inside the window we read.
+  const total = ids.length < MERGE_DEPTH ? board.length : totalRows;
 
   return send(res, 200, { leaders, total, player });
 }

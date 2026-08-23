@@ -14,7 +14,8 @@
  * ever sent to the browser.
  *
  * Redis layout
- *   chompy:leaderboard          sorted set   member = playerId, score = best distance
+ *   chompy:leaderboard          sorted set   member = playerId, score = best SCORE
+ *   chompy:dists                hash         playerId -> distance of that best run
  *   chompy:names                hash         playerId -> display name (fast top-25 lookups)
  *   chompy:player:{playerId}    hash         name, bestDistance, bestScore, bestCoins, runs, updatedAt
  *   chompy:rl:{ip|pid}:{x}:{m}  counters     per-minute rate limiting (auto-expire)
@@ -62,8 +63,9 @@ const RATE_LIMIT = {                   // normal play is ~1 submission per 10-60
 };
 
 const KEY = {
-  board: 'chompy:leaderboard',
+  board: 'chompy:leaderboard',      // sorted set, scored by SCORE (distance + coins*5)
   names: 'chompy:names',
+  dists: 'chompy:dists',            // playerId -> best-scoring run's distance, for display
   player: (id) => `chompy:player:${id}`,
   rate: (kind, id, minute) => `chompy:rl:${kind}:${id}:${minute}`,
 };
@@ -119,6 +121,7 @@ async function handleGet(req, res, redis) {
   if (playerId) {
     commands.push(['ZSCORE', KEY.board, playerId]);
     commands.push(['HGET', KEY.names, playerId]);
+    commands.push(['HGET', KEY.dists, playerId]);
   }
 
   const results = await redis.pipeline(commands);
@@ -126,17 +129,21 @@ async function handleGet(req, res, redis) {
   const totalRows = toInt(results[1]) || 0;
 
   const ids = [];
-  const distances = [];
+  const scores = [];
   for (let i = 0; i + 1 < flat.length; i += 2) {
     ids.push(String(flat[i]));
-    distances.push(Math.floor(Number(flat[i + 1]) || 0));
+    scores.push(Math.floor(Number(flat[i + 1]) || 0));
   }
 
   // Names live in one hash so the whole board is a single HMGET.
-  let names = [];
+  let names = [], dists = [];
   if (ids.length) {
-    const [got] = await redis.pipeline([['HMGET', KEY.names, ...ids]]);
-    names = Array.isArray(got) ? got : [];
+    const got = await redis.pipeline([
+      ['HMGET', KEY.names, ...ids],
+      ['HMGET', KEY.dists, ...ids],
+    ]);
+    names = Array.isArray(got[0]) ? got[0] : [];
+    dists = Array.isArray(got[1]) ? got[1] : [];
   }
 
   /* Merge rows that share a display name, keeping the best.
@@ -154,7 +161,7 @@ async function handleGet(req, res, redis) {
     const key = name.toUpperCase();
     const existing = byName.get(key);
     if (existing) { existing.ids.push(ids[i]); continue; }
-    const row = { name, distance: distances[i], ids: [ids[i]] };
+    const row = { name, score: scores[i], distance: toInt(dists[i]) || 0, ids: [ids[i]] };
     byName.set(key, row);
     board.push(row);
   }
@@ -163,6 +170,7 @@ async function handleGet(req, res, redis) {
   const leaders = board.slice(0, LEADERBOARD_SIZE).map((row, i) => ({
     rank: i + 1,
     name: row.name,
+    score: row.score,
     distance: row.distance,
     you: playerId !== null && row.ids.indexOf(playerId) !== -1,
   }));
@@ -171,6 +179,7 @@ async function handleGet(req, res, redis) {
   if (playerId && results[2] !== null && results[2] !== undefined) {
     const myBest = Math.floor(Number(results[2]) || 0);
     const myName = cleanName(results[3]).toUpperCase();
+    const myDist = toInt(results[4]) || 0;
     // Your rank is the rank of your NAME's merged row, so a lower run on a second
     // device does not report a worse position than the board actually shows.
     let idx = -1;
@@ -178,13 +187,13 @@ async function handleGet(req, res, redis) {
       if (board[i].ids.indexOf(playerId) !== -1 || board[i].name.toUpperCase() === myName) { idx = i; break; }
     }
     if (idx >= 0) {
-      player = { rank: idx + 1, best: Math.max(myBest, board[idx].distance) };
+      player = { rank: idx + 1, best: Math.max(myBest, board[idx].score), distance: board[idx].distance };
     } else {
       // Outside the window we read, so fall back to the raw rank. It counts unmerged
       // duplicates and is therefore an upper bound, not an exact position.
       const [rawRank] = await redis.pipeline([['ZREVRANK', KEY.board, playerId]]);
       const r = rawRank === null || rawRank === undefined ? null : toInt(rawRank) + 1;
-      player = { rank: r, best: myBest, approx: true };
+      player = { rank: r, best: myBest, distance: myDist, approx: true };
     }
   }
 
@@ -226,24 +235,30 @@ async function handlePost(req, res, redis) {
     return send(res, 429, { error: 'TOO_MANY_REQUESTS' });
   }
 
-  /* --- server-side best check: the browser can never lower a score --- */
+  /* --- server-side best check: the browser can never lower a score ---
+     The board ranks by SCORE (distance + coins x COIN_VALUE), so coins genuinely count
+     towards your placing rather than being decoration. `distance` is stored alongside
+     purely so the board can show both numbers.
+     NOTE: entries written by an older build hold a raw distance in the sorted set, which
+     just under-rates them. Since score >= distance always, the player's next run
+     overtakes it and the row self-corrects. */
   const storedBest = first[4] === null || first[4] === undefined ? null : Math.floor(Number(first[4]) || 0);
-  const improved = storedBest === null || run.distance > storedBest;
-  const bestDistance = improved ? run.distance : storedBest;
+  const improved = storedBest === null || run.score > storedBest;
+  const bestScoreOnBoard = improved ? run.score : storedBest;
 
   const prev = Array.isArray(first[5]) ? first[5] : [];
-  const bestScore = Math.max(run.score, toInt(prev[0]) || 0);
   const bestCoins = Math.max(run.coins, toInt(prev[1]) || 0);
 
   const commands = [];
   if (improved) {
-    commands.push(['ZADD', KEY.board, String(run.distance), run.playerId]);
+    commands.push(['ZADD', KEY.board, String(run.score), run.playerId]);
+    // Distance of the run that set the best score — not the best distance ever.
+    commands.push(['HSET', KEY.dists, run.playerId, String(run.distance)]);
   }
   commands.push([
     'HSET', KEY.player(run.playerId),
     'name', run.name,
-    'bestDistance', String(bestDistance),
-    'bestScore', String(bestScore),
+    'bestScore', String(bestScoreOnBoard),
     'bestCoins', String(bestCoins),
     'lastDistance', String(run.distance),
     'updatedAt', new Date().toISOString(),
@@ -260,7 +275,7 @@ async function handlePost(req, res, redis) {
   return send(res, 200, {
     ok: true,
     improved,
-    best: bestDistance,
+    best: bestScoreOnBoard,
     rank: rankIndex === null || rankIndex === undefined ? null : toInt(rankIndex) + 1,
     total,
     name: run.name,
